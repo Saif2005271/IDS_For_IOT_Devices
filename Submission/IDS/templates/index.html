@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IDS Dashboard</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f4f9; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 { text-align: center; color: #2c3e50; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .card h2 { margin-top: 0; color: #34495e; border-bottom: 2px solid #ecf0f1; padding-bottom: 10px; display: flex; justify-content: space-between; align-items: center;}
+        
+        /* Status Indicators */
+        .status-box { padding: 10px; border-radius: 4px; font-weight: bold; text-align: center; margin-bottom: 10px; transition: all 0.3s ease; }
+        
+        .running { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .stopped { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .transition { background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba; } /* Yellow/Orange */
+
+        /* Controls */
+        label { display: block; margin: 10px 0 5px; font-weight: bold; }
+        input, select { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ddd; border-radius: 4px; }
+        
+        .btn-group { display: flex; gap: 10px; margin-top: 15px; }
+        button { flex: 1; padding: 10px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; transition: background 0.2s; }
+        .btn-start { background: #28a745; color: white; }
+        .btn-stop { background: #dc3545; color: white; }
+        .btn-blue { background: #007bff; color: white; }
+        .btn-gray { background: #6c757d; color: white; }
+        button:hover { opacity: 0.9; }
+
+        .btn-xs { width: auto; padding: 4px 10px; font-size: 0.75rem; flex: none; }
+
+        /* Tables & Sorting */
+        table { width: 100%; border-collapse: collapse; margin-top: 5px; font-size: 0.9em; table-layout: fixed;}
+        th { 
+            background-color: #f8f9fa; padding: 10px; text-align: left; 
+            border-bottom: 1px solid #ddd; cursor: pointer; user-select: none;
+        }
+        th:hover { background-color: #e2e6ea; }
+        td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; word-wrap: break-word;}
+        tr:hover { background-color: #f1f1f1; }
+        .malicious { color: #dc3545; font-weight: bold; }
+        .sort-arrow { float: right; font-size: 0.8em; opacity: 0.3; }
+        .active-sort { opacity: 1; color: #007bff; }
+
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🛡️ IOT IDS Control Center</h1>
+
+    <div class="grid">
+        <div class="card">
+            <h2>IDS Monitor</h2>
+            <div id="idsStatusBox" class="status-box stopped">Status: Stopped</div>
+            
+            <label>Interface (NIC):</label>
+            <input type="text" id="nicInput" value="Wi-Fi">
+            
+            <label>Detection Mode:</label>
+            <select id="modeInput">
+                <option value="1">Hybrid (Offline + Online)</option>
+                <option value="2">Offline Only (Fast)</option>
+                <option value="0">Online Only (Slow)</option>
+            </select>
+
+            <div class="btn-group">
+                <button class="btn-start" onclick="startIDS()">Start IDS</button>
+                <button class="btn-stop" onclick="stopIDS()">Stop IDS</button>
+            </div>
+            <div class="btn-group">
+                 <button class="btn-gray" onclick="updateIoC()">Update Database</button>
+            </div>
+            <div style="text-align:center; margin-top:5px; font-size:0.85em; font-weight:bold;" id="dbStatusText"></div>
+        </div>
+
+        <div class="card">
+            <h2>Vulnerability Scanner</h2>
+            <div id="scanStatusBox" class="status-box stopped">Status: Stopped</div>
+            
+            <label>Target IP:</label>
+            <input type="text" id="scanTarget" value="127.0.0.1">
+            
+            <label>Auto-Scan Interval (Minutes):</label>
+            <input type="number" id="scanInterval" value="5" min="1">
+
+            <div class="btn-group">
+                <button class="btn-blue" onclick="scanOnce()">Scan Once (Immediate)</button>
+            </div>
+            <div style="text-align:center; margin-top:5px; font-size:0.9em; font-weight:bold;" id="scanOnceStatusText"></div>
+
+            <div class="btn-group">
+                <button class="btn-start" onclick="startScanLoop()">Start Auto-Scan</button>
+                <button class="btn-stop" onclick="stopScanLoop()">Stop Auto-Scan</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid">
+        <div class="card" style="grid-column: span 2;">
+            <h2>
+                Recent IDS Alerts 
+                <button class="btn-gray btn-xs" onclick="clearLogs()">Clear Logs</button>
+            </h2>
+            <table id="idsTableStruct">
+                <thead>
+                    <tr>
+                        <th onclick="sortTable(0, 'idsTableStruct')">Time <span class="sort-arrow">⇅</span></th>
+                        <th onclick="sortTable(1, 'idsTableStruct')">Src IP <span class="sort-arrow">⇅</span></th>
+                        <th onclick="sortTable(2, 'idsTableStruct')">S.Port <span class="sort-arrow">⇅</span></th>
+                        <th onclick="sortTable(3, 'idsTableStruct')">Dst IP <span class="sort-arrow">⇅</span></th>
+                        <th onclick="sortTable(4, 'idsTableStruct')">D.Port <span class="sort-arrow">⇅</span></th>
+                        <th onclick="sortTable(5, 'idsTableStruct')">Country <span class="sort-arrow">⇅</span></th>
+                        <th onclick="sortTable(6, 'idsTableStruct')">Attack Type <span class="sort-arrow">⇅</span></th>
+                        <th onclick="sortTable(7, 'idsTableStruct')">Source <span class="sort-arrow">⇅</span></th>
+                    </tr>
+                </thead>
+                <tbody id="idsBody"></tbody>
+            </table>
+        </div>
+    </div>
+    
+    <div class="grid">
+        <div class="card" style="grid-column: span 2;">
+            <h2>
+                Recent Port Scan Results
+                <button class="btn-gray btn-xs" onclick="clearScanLogs()">Clear Scans</button>
+            </h2>
+            <table id="scanTableStruct">
+                <thead>
+                    <tr>
+                        <th onclick="sortTable(0, 'scanTableStruct')">Time <span class="sort-arrow">⇅</span></th>
+                        <th onclick="sortTable(1, 'scanTableStruct')">Target <span class="sort-arrow">⇅</span></th>
+                        <th onclick="sortTable(2, 'scanTableStruct')">Port <span class="sort-arrow">⇅</span></th>
+                        <th onclick="sortTable(3, 'scanTableStruct')">Service <span class="sort-arrow">⇅</span></th>
+                        <th onclick="sortTable(4, 'scanTableStruct')">Status <span class="sort-arrow">⇅</span></th>
+                    </tr>
+                </thead>
+                <tbody id="scanBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    // --- STATUS HELPERS ---
+    function setManualStatus(elementId, text) {
+        const box = document.getElementById(elementId);
+        box.innerText = "Status: " + text;
+        box.className = "status-box transition"; 
+    }
+
+    // --- API CALLS ---
+    function startIDS() {
+        setManualStatus('idsStatusBox', 'Starting...'); 
+        
+        const nic = document.getElementById('nicInput').value;
+        const mode = document.getElementById('modeInput').value;
+        fetch('/api/config', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ nic: nic, mode: mode })
+        }).then(() => {
+            fetch('/api/start', {method: 'POST'})
+            .then(r => r.json())
+            .then(data => {
+                if(data.message && data.message.includes("Cannot start")) {
+                    alert(data.message);
+                    // Revert UI to match actual state if start failed
+                    document.getElementById('idsStatusBox').className = 'status-box stopped';
+                    document.getElementById('idsStatusBox').innerText = 'Status: Stopped';
+                }
+            });
+        });
+    }
+
+    function stopIDS() {
+        setManualStatus('idsStatusBox', 'Stopping...'); 
+        fetch('/api/stop', {method: 'POST'});
+    }
+
+    function updateIoC() {
+        if(confirm("Download large database?")) {
+            fetch('/api/update_ioc', {method: 'POST'});
+        }
+    }
+
+    function scanOnce() {
+        const target = document.getElementById('scanTarget').value;
+        fetch('/api/scan/once', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ target: target })
+        });
+    }
+
+    function startScanLoop() {
+        setManualStatus('scanStatusBox', 'Starting...'); 
+        const target = document.getElementById('scanTarget').value;
+        const interval = document.getElementById('scanInterval').value;
+        fetch('/api/scan/start', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ target: target, interval: interval })
+        });
+    }
+
+    function stopScanLoop() {
+        setManualStatus('scanStatusBox', 'Stopping...'); 
+        fetch('/api/scan/stop', {method: 'POST'});
+    }
+
+    function clearLogs() {
+        if(confirm("Delete IDS history?")) {
+            fetch('/api/clear_logs', {method: 'POST'});
+        }
+    }
+
+    function clearScanLogs() {
+        if(confirm("Delete Port Scan history?")) {
+            fetch('/api/clear_scan_logs', {method: 'POST'});
+        }
+    }
+
+    // --- POLLING LOOP ---
+    setInterval(() => {
+        fetch('/api/status').then(r => r.json()).then(data => {
+            const idsBox = document.getElementById('idsStatusBox');
+            const scanBox = document.getElementById('scanStatusBox');
+
+            // --- 1. Database Update PRIORITY ---
+            if(data.database_status !== 'Idle') {
+                idsBox.innerText = data.database_status; 
+                if(data.database_status.includes("successfully")) {
+                    idsBox.className = 'status-box running'; // Green
+                } else if (data.database_status.includes("Failed")) {
+                    idsBox.className = 'status-box stopped'; // Red
+                } else {
+                    idsBox.className = 'status-box transition'; // Orange
+                }
+            } 
+            // --- 2. Normal IDS Status + Missing File Check ---
+            else {
+                if(data.ids_status === 'Running') {
+                    idsBox.className = 'status-box running';
+                    idsBox.innerText = 'Status: Running';
+                } else if (data.ids_status === 'Stopped') {
+                    idsBox.className = 'status-box stopped';
+                    idsBox.innerText = 'Status: Stopped';
+                } else if (data.ids_status.includes("Can't scan")) {
+                    idsBox.className = 'status-box stopped';
+                    idsBox.innerText = data.ids_status;
+                }
+            }
+
+            // Auto-Scan Logic
+            if(data.scan_status === 'Running') {
+                scanBox.className = 'status-box running';
+                scanBox.innerText = 'Auto-Scan: Running';
+            } else if (data.scan_status === 'Stopped') {
+                scanBox.className = 'status-box stopped';
+                scanBox.innerText = 'Auto-Scan: Stopped';
+            }
+
+            // Single Scan Status
+            const onceStatus = document.getElementById('scanOnceStatusText');
+            if(data.scan_once_status === 'Idle') {
+                onceStatus.innerText = '';
+            } else {
+                onceStatus.innerText = data.scan_once_status;
+                onceStatus.style.color = (data.scan_once_status === 'Scanning...') ? '#e67e22' : '#28a745';
+            }
+
+            // DB Status Text (Small text below button)
+            const dbStatus = document.getElementById('dbStatusText');
+            if(data.database_status === 'Idle') {
+                dbStatus.innerText = '';
+            } else {
+                dbStatus.innerText = data.database_status;
+                if(data.database_status.includes("Updating")) {
+                    dbStatus.style.color = '#e67e22'; 
+                } else if(data.database_status.includes("successfully")) {
+                    dbStatus.style.color = '#28a745'; 
+                } else {
+                    dbStatus.style.color = '#dc3545'; 
+                }
+            }
+        });
+
+        // Logs Update
+        fetch('/api/logs?page=1').then(r => r.json()).then(data => {
+            const tbody = document.getElementById('idsBody');
+            let html = '';
+            data.logs.forEach(log => {
+                // Ensure ports are displayed cleanly even if missing in old logs
+                const sPort = log.src_port || '-';
+                const dPort = log.dst_port || '-';
+                
+                html += `<tr>
+                    <td>${log.timestamp}</td>
+                    <td>${log.src_ip}</td>
+                    <td>${sPort}</td>
+                    <td>${log.dst_ip}</td>
+                    <td>${dPort}</td>
+                    <td>${log.country}</td>
+                    <td class="malicious">${log.attack_type}</td>
+                    <td>${log.source}</td>
+                </tr>`;
+            });
+            tbody.innerHTML = html;
+            let state = sortState['idsTableStruct'];
+            if(state.col !== -1) {
+                sortState['idsTableStruct'].dir = (state.dir === 'asc') ? 'desc' : 'asc';
+                sortTable(state.col, 'idsTableStruct');
+            }
+        });
+
+        fetch('/api/scan/results').then(r => r.json()).then(data => {
+            const tbody = document.getElementById('scanBody');
+            let html = '';
+            data.results.forEach(res => {
+                html += `<tr>
+                    <td>${res.timestamp}</td>
+                    <td>${res.target_ip}</td>
+                    <td>${res.port}</td>
+                    <td>${res.service}</td>
+                    <td style="color:green; font-weight:bold;">${res.status}</td>
+                </tr>`;
+            });
+            tbody.innerHTML = html;
+            let state = sortState['scanTableStruct'];
+            if(state.col !== -1) {
+                sortState['scanTableStruct'].dir = (state.dir === 'asc') ? 'desc' : 'asc';
+                sortTable(state.col, 'scanTableStruct');
+            }
+        });
+
+    }, 2000); 
+
+    // --- SORTING LOGIC ---
+    let sortState = {
+        'idsTableStruct': { col: -1, dir: 'asc' },
+        'scanTableStruct': { col: -1, dir: 'asc' }
+    };
+
+    function sortTable(n, tableId) {
+        var table, rows, switching, i, x, y, shouldSwitch, dir, switchcount = 0;
+        table = document.getElementById(tableId);
+        
+        if(sortState[tableId].col === n) {
+            dir = (sortState[tableId].dir === "asc") ? "desc" : "asc";
+        } else {
+            dir = "asc";
+        }
+        sortState[tableId] = { col: n, dir: dir };
+        updateArrows(tableId, n, dir);
+
+        switching = true;
+        while (switching) {
+            switching = false;
+            rows = table.rows;
+            for (i = 1; i < (rows.length - 1); i++) {
+                shouldSwitch = false;
+                x = rows[i].getElementsByTagName("TD")[n];
+                y = rows[i + 1].getElementsByTagName("TD")[n];
+                let xVal = x.innerHTML.toLowerCase();
+                let yVal = y.innerHTML.toLowerCase();
+                let xNum = parseFloat(xVal);
+                let yNum = parseFloat(yVal);
+                let isNumeric = !isNaN(xNum) && !isNaN(yNum);
+
+                if (dir == "asc") {
+                    if (isNumeric) { if (xNum > yNum) shouldSwitch = true; }
+                    else { if (xVal > yVal) shouldSwitch = true; }
+                } else if (dir == "desc") {
+                    if (isNumeric) { if (xNum < yNum) shouldSwitch = true; }
+                    else { if (xVal < yVal) shouldSwitch = true; }
+                }
+                if (shouldSwitch) {
+                    rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
+                    switching = true;
+                    switchcount++;
+                }
+            }
+        }
+    }
+
+    function updateArrows(tableId, colIndex, dir) {
+        const table = document.getElementById(tableId);
+        const headers = table.getElementsByTagName("th");
+        for(let h of headers) {
+            let arrow = h.getElementsByClassName("sort-arrow")[0];
+            if(arrow) {
+                arrow.innerHTML = "⇅";
+                arrow.className = "sort-arrow"; 
+            }
+        }
+        const activeHeader = headers[colIndex];
+        const activeArrow = activeHeader.getElementsByClassName("sort-arrow")[0];
+        if(activeArrow) {
+            activeArrow.innerHTML = (dir === "asc") ? "▲" : "▼";
+            activeArrow.className = "sort-arrow active-sort";
+        }
+    }
+</script>
+
+</body>
+</html>
